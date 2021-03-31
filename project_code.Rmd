@@ -1,0 +1,827 @@
+---
+title: "Stat844 project: Appendix"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+#for date preprocessing
+library(lubridate)
+library(dplyr) 
+library(tictoc)
+
+source('C:/Users/xpada/Downloads/scatter3d.R')
+
+set.seed(42)
+dataset <- read.csv("googleplaystore.csv", header=TRUE, stringsAsFactors = FALSE)
+
+#remove row 10473 as it left-shifted all the information
+dataset = dataset[-10473,]
+
+#do some data vizualization
+
+#udpate date column to numeric
+curr_date = as.Date("01/09/2018", "%d/%m/%Y")
+data_size = dim(dataset)[1]
+dates = dataset['Last.Updated']
+
+for (i in 1:data_size){
+  t1 = as.Date(dates[i,1], format = "%B %d, %Y")
+  dataset['Last.Updated'][i,1] = as.numeric(difftime(curr_date,t1))
+  #make size column numeric
+  if(grepl('M',dataset['Size'][i,1], fixed=TRUE)){
+    dataset['Size'][i,1] = as.numeric(gsub('M', '', dataset['Size'][i,1]))
+  } else if(grepl('k',dataset['Size'][i,1], fixed=TRUE)){
+    dataset['Size'][i,1] = as.numeric(gsub('k', '', dataset['Size'][i,1]))/1000
+  }
+  
+  #make installs column numeric
+  if(grepl('+',dataset['Installs'][i,1], fixed=TRUE)){
+    dataset['Installs'][i,1] = gsub('[+]', '', dataset['Installs'][i,1])
+  }
+  if(grepl(',',dataset['Installs'][i,1], fixed=TRUE)){
+    dataset['Installs'][i,1] = as.numeric(gsub('[,]', '', dataset['Installs'][i,1]))
+  }
+  
+  #clean version columns
+  if(grepl('^[0-9]{1,2}\\.[0-9]+',dataset['Current.Ver'][i,1])){
+    dataset['Current.Ver'][i,1] = gsub('^[^0-9]*([0-9]+.[0-9]{1,3}).*','\\1',dataset['Current.Ver'][i,1])
+  }else{
+    dataset['Current.Ver'][i,1] = NA
+  }
+  
+  if(grepl('^[0-9]{1,2}\\.[0-9]+',dataset['Android.Ver'][i,1])){
+    dataset['Android.Ver'][i,1] = gsub('^[^0-9]*([0-9]+.[0-9]{1,3}).*','\\1',dataset['Android.Ver'][i,1])
+  }else{
+    dataset['Android.Ver'][i,1] = NA
+  }
+  
+  if(grepl('$',dataset['Price'][i,1], fixed=TRUE)){
+    dataset['Price'][i,1] = gsub('[$]','',dataset['Price'][i,1])
+  }
+}
+
+#convert some columns from character to numeric
+dataset$Last.Updated = sapply(dataset$Last.Updated, as.numeric)
+
+dataset[dataset=='Varies with device'] = NA
+dataset[dataset=='NaN'] = NA
+
+#remove duplicated value
+dataset = dataset[-which(duplicated(dataset$App)),]
+
+
+#for now, remove all NA entries in response variables.
+dataset = dataset[-which(is.na(dataset['Rating'])), ]
+
+#only three column have missing values
+#...(data vizualization)
+
+#for now, impute with median
+dataset$Size[which(is.na(dataset$Size))] = median(as.numeric(dataset$Size[which(!is.na(dataset$Size))]))
+dataset$Current.Ver[which(is.na(dataset$Current.Ver))] = median(as.numeric(dataset$Current.Ver[which(!is.na(dataset$Current.Ver))]))
+dataset$Android.Ver[which(is.na(dataset$Android.Ver))] = median(as.numeric(dataset$Android.Ver[which(!is.na(dataset$Android.Ver))]))
+
+#convert some columns to numeric 
+dataset$Current.Ver = as.numeric(dataset$Current.Ver)
+dataset$Android.Ver = as.numeric(dataset$Android.Ver)
+dataset$Size = as.numeric(dataset$Size)
+dataset$Price = as.numeric(dataset$Price)
+dataset$Reviews = as.numeric(dataset$Reviews)
+dataset$Installs = as.numeric(dataset$Installs)
+
+#change app name to numeric app ID
+dataset$App = as.numeric(1:nrow(dataset))
+
+#Since Price covers the meaning of Type, then drop the Type column
+# dataset['Type'] = list(NULL)
+
+dataset=dataset %>% mutate_if(is.character, as.factor)
+
+
+# dataset$Category = as.numeric(dataset$Category)
+
+#add a new feature called Rating value indicator
+t2= log(dataset$Installs+1)*log(dataset$Reviews+1)
+dataset['RVI'] = t2
+
+```
+
+```{r}
+#data vizualization
+library(ggplot2)
+library(highcharter)
+library(binr)
+library(Hmisc)
+library(plotrix)
+par(mfrow=c(2,2))
+
+#installs
+cut.Installs = cut(dataset$Installs, c(-Inf,100,1e+3,5e+3, 1e+4, 5e+4,1e+5,5e+5, 1e+6, 5e+6, 1e+7,Inf))
+levels(cut.Installs) = c('[0,100]', '(100,1k]', '(1k,5k]', '(5k,10k]', '(10k,50k]', '(50k,100k]', '(100k,500k]','(500k,1M]','(1M,5M]','(5M,10M]','10M+')
+plot(cut.Installs, main='Installs distribution', ylab='Amount of applications', col='green', las=2)
+
+#Reviews
+cut.Reviews = cut(dataset$Reviews, c(-Inf,100,500,1000,2000,5000,1e+4,1e+5,Inf))
+levels(cut.Reviews) = c('[0, 100]', '(100,500]', '(500,1k]','(1k,2k]','(2k,5k]','(5k,10k]', '(10k,100k]','100k+')
+plot(cut.Reviews, main='Reviews distribution', col = 'blue', las=2, ylab='Amount of applications')
+
+#size
+hist(dataset$Size, main='Size distribution', ylab = 'Amount of applications',xlab = 'Application size (Mb)', col='purple')
+
+#Ratings
+hist(dataset$Rating,xlab='Rating',ylab='Frequency',main='Rating frequency',col='orange')
+```
+
+```{r}
+par(mfrow=c(2,2))
+#last updated
+cut.days = cut(dataset$Last.Updated, c(-Inf,30,60,90,180, 365, 545, 730,910, 1095,Inf))
+levels(cut.days) = c('1 month', '2 months', '3 months', '6 months', '1 year', '1.5 years', '2 years','2.5 years','3 years','3 years+')
+plot(cut.days, main='Days since last update', ylab='Amount of applications', col='pink', las=2)
+
+#content.rating
+# labels=names(table(dataset$Content.Rating))
+# pie3D(table(dataset$Content.Rating), labels=labels,main='Content rating distribution')
+plot(dataset$Content.Rating, main='Content.rating distribution', ylab='Amount of applications', las=2)
+
+#Current.ver
+cut.ver = cut(dataset$Current.Ver, c(-Inf,1,2,4,6,10,20,50,Inf))
+levels(cut.ver) = c('[0, 1]', '(1,2]', '(2, 4]','(4, 6]', '(6, 10]','(10, 20]','(20 to 50]','50+')
+plot(cut.ver, main='Current version deployed', ylab='Amount of applications', col='blue', las=2)
+
+```
+
+```{r}
+par(mfrow=c(2,2))
+#type
+labels=names(table(dataset$Type))
+pie(table(dataset$Type), labels=labels, main='Application type distribution')
+# plot(dataset$Type, main='Application type distribution', xlab = 'Type', ylab='Amount of applications')
+
+#Android.ver
+labels = names(table(dataset$Android.Ver))
+pie(table(dataset$Android.Ver), labels=labels, main='Android version minimum requirement', radius=1,cex=1)
+
+```
+
+```{r}
+
+#Categories
+dataset%>%
+  count(Category)%>%
+  arrange(n)%>%
+  hchart(type = "column", hcaes(x = Category, y = n), main='Category Summary', xlab = 'Category', ylab='Amount') %>%
+  hc_xAxis(title=list(text='Categories'),labels = list(rotation=-70,step=1)) %>%
+  hc_yAxis(title=list(text='Amount of applications')) %>%
+  hc_title(text='Number of applications vs Categories')
+
+
+#log transform some features
+dataset['Rating'] = log(dataset['Rating']+1)
+dataset['Installs'] = log(dataset['Installs']+1)
+dataset['Reviews'] = log(dataset['Reviews'] + 1)
+dataset['Size'] = log(dataset['Size'] + 1)
+
+par(mfrow=c(2,2))
+#installs vs rating
+plot(dataset$Installs,dataset$Rating, main = 'Rating vs Installs', ylab='Rating', xlab = 'Installs')
+
+#reviews vs rating
+plot(dataset$Reviews,dataset$Rating, main = 'Rating vs Reviews', ylab='Rating', xlab = 'Reviews')
+
+```
+
+#smoothing method
+```{r}
+library(FNN)
+library(MASS)
+library(Metrics)
+library(rgl)
+
+
+#this is the plot for the rating feature against the response variable
+par(mfrow=c(2,2))
+x=dataset$RVI
+y=dataset$Rating
+plot(x,y, main='Rating vs RVI')
+
+# Let's try a few values for k
+#
+knn.fit5 <- knn.reg(x, y=y, k=5)
+knn.fit21 <- knn.reg(x, y=y, k=21)
+knn.fit51 <- knn.reg(x, y=y, k=51)
+Xorder <- order(x)
+plot(x,y,
+     col="grey80", pch=19, cex=0.5,
+     main = "5 nearest neighbours",
+     xlab='dataset$RVI',
+     ylab='Rating')
+lines(x[Xorder], knn.fit5$pred[Xorder],
+      col=adjustcolor("firebrick", 0.5),
+      lwd=2)
+plot(x,y,
+     col="grey80", pch=19, cex=0.5,
+     main = "21 nearest neighbours",
+     xlab='dataset$RVI',
+     ylab='Rating')
+lines(x[Xorder], knn.fit21$pred[Xorder],
+      col=adjustcolor("firebrick", 0.75),
+      lwd=2, lty=2)
+plot(x,y,
+     col="grey80", pch=19, cex=0.5,
+     main = "51 nearest neighbours",
+     xlab='dataset$RVI',
+     ylab='Rating')
+lines(x[Xorder], knn.fit51$pred[Xorder],
+      col=adjustcolor("firebrick", 0.75),
+      lwd=2, lty=5)
+
+```
+
+```{r}
+par(mfrow=c(2,2))
+LoWeSS <- function(x, y,
+                   xloc=NULL,
+                   span=0.1,
+                   weightFn=GaussWeight,
+                   nlocs=200) {
+  data <- data.frame(x=x, y=y)
+  xrange <- extendrange(x)
+  bandwidth <- (diff(xrange)*span)/4
+  if (is.null(xloc)) {
+    xloc <- seq(xrange[1], xrange[2],
+                length.out=nlocs)
+  }
+  estimates <- vector("numeric", length=length(xloc))
+  for (i in 1:length(xloc)) {
+    weights <- weightFn(xloc[i], x, bandwidth)
+    fit <- lm(y~x, data=data, weights=weights)
+    pred <- predict(fit, newdata=data.frame(x=xloc[i]))
+    estimates[i] <- pred
+  }#return the estimates
+  list(x = xloc, y = estimates)
+}
+
+GaussWeight <- function(xloc, x, h=1) {
+  # Normal density
+  dnorm(x, mean=xloc, sd=h)
+}
+
+N = nrow(dataset)
+N_train = round(4*N/5)
+N_test = N - N_train
+
+id.train = sample(1:N, N_train, replace = FALSE)
+id.test = setdiff(1:N,id.train)
+test = dataset[id.test,]
+train = dataset[id.train,]
+actual = test$Rating
+
+x = train$RVI
+y = train$Rating
+
+par(mfrow=c(2,2))
+smooth <- LoWeSS(x,y) #default span=0.1
+plot(x,y,
+     col="grey80", pch=19, cex=0.5,
+     main = "Implemented loess",
+     xlab='RVI',
+     ylab='Rating')
+lines(smooth$x, smooth$y, col="steelblue", lwd=2)
+
+
+#using the build in function loess in R that expresses more the concept of local weighted sums of squares
+
+fit <- loess(y~x, data=train, span=0.1)
+plot(x,y,
+     col="grey80", pch=19, cex=0.5,
+     main = "Built-in loess",
+     xlab='RVI',
+     ylab='Rating')
+##Get the values predicted by the loess
+pred <- predict(fit)
+##Get the order of the x
+Xorder <- order(x)
+#
+lines(x[Xorder],pred[Xorder], lwd=2, col="steelblue")
+
+```
+
+```{r}
+#tune the span paramter
+par(mfrow=c(2,2))
+
+#implemented loess
+smooth <- LoWeSS(x,y, span=0.2)
+plot(x,y,
+     col="grey80", pch=19, cex=0.5,
+     main = "Implemented loess",
+     xlab='RVI',
+     ylab='Rating')
+lines(smooth$x, smooth$y, col="steelblue", lwd=2)
+
+#build-in loess
+fit <- loess(y~x, data=data.frame(train), span=0.2)
+plot(x,y,
+     col="grey80", pch=19, cex=0.5,
+     main = "Built-in loess",
+     xlab='RVI',
+     ylab='Rating')
+
+##Get the values predicted by the loess
+pred <- predict(fit)
+##
+lines(x[Xorder],pred[Xorder], lwd=2, col="steelblue")
+```
+
+```{r}
+#5-fold cross validation
+tic('loess computation time')
+sum_mse = 0
+sum_rmse=0
+sum_rmsle=0
+for (c in 0:4){
+  id.test = (c*N_test):(c*N_test+N_test)
+  id.train = setdiff(1:N, id.test)
+  test = dataset[id.test,]
+  train = dataset[id.train,]
+  actual = test$Rating
+  x = train$RVI
+  y = train$Rating
+  fit <- loess(y~x, data=train, span=0.1, control=loess.control(surface="direct"))
+  pred = predict(fit,test$RVI)
+  s.mse = mean((actual-pred)^2)
+  s.rmse = rmse(actual,pred)
+  s.rmsle = rmsle(actual,pred)
+  sum_mse = sum_mse + s.mse
+  sum_rmse = sum_rmse + s.rmse
+  sum_rmsle = sum_rmsle + s.rmsle
+}
+
+loess.mse = sum_mse/5
+loess.rmse = sum_rmse/5
+loess.rmsle = sum_rmsle/5
+toc()
+
+```
+
+```{r}
+#3d scatter
+
+#make sure to run the scatter3d.R before running blocks related to 3D scatter plots
+id.train = sample(1:N, N_train, replace = FALSE)
+id.test = setdiff(1:N,id.train)
+test = dataset[id.test,]
+train = dataset[id.train,]
+actual = test$Rating
+
+
+formula = dataset$Rating~dataset$Installs + dataset$Reviews
+#more than just one variate
+scatter3d(formula,data=train)
+snapshot3d("smooth1.png")
+```
+
+```{r}
+#adding an interaction term, lets see the differences
+scatter3d(formula,
+          data=train,
+          fit = c("linear", "interaction"))
+snapshot3d("smooth2.png")
+
+```
+
+```{r}
+#quad with a non-additive quad that includes a cross product term xz
+scatter3d(formula,
+          data=train,
+          fit=c("quadratic", "quadint")
+)
+snapshot3d("smooth3.png")
+
+```
+
+```{r}
+#compare loess and thin plate
+scatter3d(formula,
+          data=train,
+          fit=c("loess","smooth"),
+          df.loess=30, df.smooth=30)
+snapshot3d("smooth4.png")
+```
+
+```{r}
+scatter3d(formula,
+          data=train,
+          fit=c("additive", 'smooth'), df.additive=15, df.smooth=30)
+snapshot3d("smooth5.png")
+```
+
+```{r}
+library(mgcv)
+library(caret)
+
+formula = Rating~
+  Reviews + Size + Installs +
+  Price + Last.Updated +
+  Current.Ver + Android.Ver + RVI
+tic('gam computation time')
+gam.cv = train(formula, 
+            data = train, 
+            method = "gam", 
+            trControl = trainControl(method = "cv", number=5), 
+            tuneGrid = data.frame(method = "GCV.Cp", select = FALSE))
+toc()
+```
+
+```{r}
+#final model using gam
+gam.model = gam.cv$finalModel
+summary(gam.model)
+par(mfrow=c(2,2))
+plot(gam.model, main="Dataset",
+     ylab="partial residuals", jit=TRUE,
+     residuals =TRUE, pch=19)
+par(mfrow=c(1,1))
+
+```
+
+```{r}
+pred = predict(gam.model, test)
+gam.mse = mean((actual-pred)^2)
+gam.rmse = rmse(actual,pred)
+gam.rmsle = rmsle(actual,pred)
+gam.mse
+gam.rmse
+gam.rmsle
+
+```
+
+```{r}
+library(randomForest)
+library(Metrics)
+library(caTools)
+library(caret)
+library(ranger)
+set.seed(42)
+
+p = dim(dataset)[2]-3
+
+formula = Rating~
+  Category + Reviews + Size + Installs + Type +
+  Price + Content.Rating + Last.Updated +
+  Current.Ver + Android.Ver + RVI
+
+#get train and test set
+N = nrow(dataset)
+N_train = round(4*N/5)
+N_test = N - N_train
+
+id.train = sample(1:N, N_train, replace = FALSE)
+id.test = setdiff(1:N,id.train)
+train = dataset[id.train,]
+test = dataset[id.test,]
+actual = test$Rating
+
+#let us see the optimal number of trees to use
+rf = randomForest(formula, data = dataset, mtry = p)
+plot(rf, main='Error vs Number of trees')
+
+```
+
+```{r}
+rf = randomForest(formula, data = dataset, subset=id.train, ntree = 100, mtry = 4, importance = T)
+pred = predict(rf, test)
+randomForest::importance(rf,type=2)
+randomForest::importance(rf,type=1)
+
+varImpPlot(rf, main='Feature importance')
+```
+
+```{r}
+#5-fold CV using caret
+
+fit_control <- trainControl(## 5-fold CV
+                           method = "cv",
+                           number = 5)
+
+tic('ranger cv computation time')
+rf_fit <- train(formula, 
+                data = train, 
+                method = "ranger",
+                num.trees=100,
+                importance = 'permutation',
+                trControl = fit_control)
+toc()
+```
+
+```{r}
+rf_fit
+varImp(rf_fit)
+```
+
+```{r}
+trainy = train$Rating
+trainx = train[,c('RVI','Category','Reviews','Size','Installs','Type','Price','Content.Rating','Last.Updated','Current.Ver','Android.Ver')]
+
+#5-fold validation
+dataset.rfcv = rfcv(trainx=trainx,trainy=trainy,cv.fold=5)
+with(dataset.rfcv, plot(n.var, error.cv, pch = 19, type="b", col="blue", main='5-fold cross validation'))
+```
+
+```{r}
+#5-fold cross validation
+
+sum_mse.full = 0
+sum_rmse.full=0
+sum_rmsle.full=0
+tic('rf.full computation time')
+for (c in 0:4){
+  id.test = (c*N_test):(c*N_test+N_test)
+  id.train = setdiff(1:N, id.test)
+  test = dataset[id.test,]
+  train = dataset[id.train,]
+  actual = test$Rating
+  rf.full = randomForest(formula, data = dataset, subset=id.train, ntree = 100, mtry = p, importance = T)
+  pred.full = predict(rf.full, test)
+  
+  s.mse.full = mean((actual-pred.full)^2)
+  s.rmse.full = rmse(actual,pred.full)
+  s.rmsle.full = rmsle(actual,pred.full)
+  sum_mse.full = sum_mse.full + s.mse.full
+  sum_rmse.full = sum_rmse.full + s.rmse.full
+  sum_rmsle.full = sum_rmsle.full + s.rmsle.full
+}
+
+rf.full.mse = sum_mse/5
+rf.full.rmse = sum_rmse/5
+rf.full.rmsle = sum_rmsle/5
+toc()
+
+tic('rf computation time')
+sum_mse = 0
+sum_rmse=0
+sum_rmsle=0
+for (c in 0:4){
+  id.test = (c*N_test):(c*N_test+N_test)
+  id.train = setdiff(1:N, id.test)
+  test = dataset[id.test,]
+  train = dataset[id.train,]
+  actual = test$Rating
+  rf = randomForest(formula, data = dataset, subset=id.train, ntree = 100, mtry = 4, importance = T)
+  pred = predict(rf, test)
+  s.mse = mean((actual-pred)^2)
+  s.rmse = rmse(actual,pred)
+  s.rmsle = rmsle(actual,pred)
+  sum_mse = sum_mse + s.mse
+  sum_rmse = sum_rmse + s.rmse
+  sum_rmsle = sum_rmsle + s.rmsle
+}
+
+rf.mse = sum_mse/5
+rf.rmse = sum_rmse/5
+rf.rmsle = sum_rmsle/5
+toc()
+
+rf.mse
+rf.rmse
+rf.rmsle
+
+```
+
+```{r}
+plot(pred,actual, main='actual vs pred')
+```
+
+
+```{r}
+#Boosting method
+library(rpart)
+library(gbm)
+library(mgcv)
+library(caret)
+set.seed(42)
+
+formula = 'Rating~
+  Category + Reviews + Size + Installs + Type + 
+  Price + Content.Rating + Last.Updated +
+  Current.Ver + Android.Ver + RVI'
+
+
+get.response <- function(fittedTree, test.data){
+  f <- formula(fittedTree)
+  terms <- terms(f)
+  response.id <- attr(terms, "response")
+  response <- as.list(attr(terms, "variables"))[[response.id + 1]]
+  with(test.data, eval(response))
+}
+
+get.newdata <- function(fittedTree, test.data){
+  f <- formula(fittedTree)
+  terms <- terms(f)
+  as.list(test.data[,attr(terms, "term.labels")])
+}
+
+boostTree <- function(formula, data,
+                      lam=0.01, M = 10,
+                      control=rpart.control(), ...) {
+  # Break the formula into pieces
+  formula.sides <- strsplit(formula, "~")[[1]]
+  response.string <- formula.sides[1]
+  rhs.formula <- formula.sides[2]
+  # Construct the boost formula
+  bformula <- paste("resid", rhs.formula, sep=" ~ ")
+  # Initialize the resid and explanatory variates
+  resid <- get.response(formula, data)
+  xvars <- get.newdata(formula, data)
+  # Calculate the boostings
+  Trees <- Map(
+    function(i) {
+      # update data frame with current resid
+      rdata <- data.frame(resid=resid, xvars)
+      # Fit the tree
+      tree <- rpart(bformula, data = rdata, control=control, ...)
+      # Update the residuals
+      # (Note the <<- assignment to escape this closure)
+      resid <<- resid - lam * predict(tree)
+      # Return the tree
+      tree }
+    , 1:M)
+  # Return the boosted function
+  function(newdata){
+    if (missing(newdata)) {
+      predictions <- Map(function(tree) {
+        # Boost piece
+        lam * predict(tree)
+      }, Trees)
+    } else {
+      predictions <- Map(function(tree){
+        # New data needs to be a list
+        if (is.data.frame(newdata)) {
+          newdata.tree <- get.newdata(tree, newdata)
+        } else {
+          newdata.tree <- newdata
+        }
+        # Boost piece
+        lam * predict(tree, newdata=newdata.tree)
+      }, Trees)
+    }#
+    #Gather the results together
+    Reduce(`+`, predictions)
+  }
+}
+
+N = nrow(dataset)
+N_train = round(0.8*N)
+N_test = N-N_train
+id.train <- sample(1:N, N_train, replace=FALSE)
+id.test <- setdiff(1:N, id.train)
+# Split the data into training and test sets.
+dataset.train <- dataset[id.train,]
+dataset.test <- dataset[id.test,]
+actual.test = dataset.test$Rating
+
+par(mfrow=c(2,2))
+for (M in c(10, 100, 500, 1000)) {
+  # Get the boosted tree
+  predict.boostedTree <- boostTree(formula, data=dataset.train, M=M, lam = 0.01)
+  # Use it to predict
+  pred <- predict.boostedTree(dataset.test)
+  # Now see how well it does
+  lims <- extendrange(c(actual.test, pred))
+  plot(get.response(formula, dataset.test), pred, pch=19,
+       col = adjustcolor("grey10", 0.3),
+       xlim=lims, ylim=lims, xlab="actual", ylab="predicted",
+       main = paste("Boosted tree fit on test set for M =", M),
+       sub = paste("APSE =", round(mean((actual.test - pred)^2), 4) )
+  )
+}
+
+#we see that M = 500 and M = 1000 have similar APSE, hence stay with M = 500
+```
+
+```{r}
+par(mfrow=c(2,2))
+# Now do it for varying depth
+for (max.depth in c(1, 2)) {
+  # Get the boosted tree
+  predict.boostedTree <- boostTree(formula, data = dataset.train,
+                                   M = 500, lam = 0.01,
+                                   control = rpart.control(maxdepth = max.depth))
+  # Use it to predict
+  pred <- predict.boostedTree(dataset.test)
+  # Now see how well it does
+  lims <- extendrange(c(actual.test, pred))
+  plot(get.response(formula, dataset.test), pred, pch=19,
+       col = adjustcolor("grey10", 0.3),
+       xlim=lims, ylim=lims, xlab="actual", ylab="predicted",
+       main = paste("Boosted tree with M = 500",
+                    "depth =", max.depth),
+       sub = paste("APSE =", round(mean((actual.test - pred)^2), 4) )
+  )
+}
+
+```
+
+```{r}
+#try gradient boosting
+par(mfrow=c(3,1), mar=c(5,8,4,1)+.1)
+dataset.boost <- gbm(as.formula(formula), data=dataset.train, shrinkage = 1, n.trees = 500)
+
+#relative influence
+rel.inf <- relative.influence(dataset.boost)
+rel.inf
+
+#Scaled relative influence
+rel.inf <- relative.influence(dataset.boost, scale. = TRUE, sort. = TRUE)
+rel.inf
+
+rel.inf <- rel.inf/sum(rel.inf)
+round(100 * rel.inf, 2)
+
+summary(dataset.boost, main = "gbm #1, shrinkage = 1", las=1)
+dataset.boost <- gbm(as.formula(formula), data=dataset.train, shrinkage = 1, n.trees = 500)
+summary(dataset.boost, main = "gbm #2, shrinkage = 1", las=1)
+
+#when no randomness, then review is the most important, so very different results!
+dataset.boost <- gbm(as.formula(formula), data=dataset.train, shrinkage = 1, n.trees = 500, bag.fraction=1)
+
+rel.inf <- relative.influence(dataset.boost, scale. = TRUE, sort. = TRUE)
+rel.inf <- rel.inf/sum(rel.inf)
+round(100 * rel.inf, 2)
+
+summary(dataset.boost, main = "gbm, shrinkage=1, bag.fraction=1", las=1)
+par(mfrow=c(1,1), mar=c(5.1,4.1,6.1,1.1))
+
+```
+
+```{r}
+#cross validation
+
+formula = Rating~
+  Category + Reviews + Size + Installs + Type + 
+Price + Content.Rating + Last.Updated +
+Current.Ver + Android.Ver + RVI
+
+fitControl <- trainControl(## 5-fold CV
+  method = "cv",
+  number = 5)
+
+gbmGrid <-  expand.grid(interaction.depth = c(1, 3, 5), 
+                        n.trees = 500, 
+                        shrinkage = c(0.1,0.5,1),
+                        n.minobsinnode = 10)
+
+
+tic('gradient boosting computational time')
+gbmFit <- train(formula, data = dataset.train, 
+                 method = "gbm", 
+                 trControl = fitControl, 
+                 verbose = FALSE, 
+                 tuneGrid = gbmGrid)
+toc()
+gbmFit
+plot(gbmFit) 
+
+```
+
+```{r}
+gbm_pred = predict(gbmFit, test)
+gbm.mse = mean((actual-gbm_pred)^2)
+gbm.rmse = rmse(actual,gbm_pred)
+gbm.rmsle = rmsle(actual,gbm_pred)
+gbm.mse
+gbm.rmse
+gbm.rmsle
+```
+
+```{r}
+fitControl <- trainControl(## 5-fold CV
+  method = "cv",
+  number = 5)
+tic('xgb computation time')
+xgb_fit <- train(formula, data = train, method = "xgbTree",
+                trControl=fitControl)
+toc()
+xgb_pred = predict(xgb_fit, test)
+xgb.mse = mean((actual-xgb_pred)^2)
+xgb.rmse = rmse(actual,xgb_pred)
+xgb.rmsle = rmsle(actual,xgb_pred)
+xgb.mse
+xgb.rmse
+xgb.rmsle
+```
