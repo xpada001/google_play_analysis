@@ -18,6 +18,17 @@ Our goal is to predict the Rating of each application ranged from 0 to 5 using t
 As we can observed, most ratings given to applications are quite positive, i.e. between rating 4 and 5. However, the Rating distribution is heavily left-skewed, hence it is needed to transform it during the modeling phase. Due to rounding effect from the data, most applications have number of downloads rounded to the highest place value, and we can see that a large portion of applications have number of downloads close to a million. On the other hand, we can see in the Review distribution that a large portion of applications have either very few numbers of reviews, i.e. between 0 and 100, or very high volume of reviews of more than 10 thousand reviews, which means that the
 opinions to applications are polarized. In addition, we can examine the application size distribution heavily right-skewed, which indicates that most of the applications have small sizes. Since Installs and Reviews have large values and they may impact greatly the response variable, it needs to do log-transform. Same for Size feature as it is right-skewed.
 
+The plot below shows the number of applications sorted by cagetories:
+
+![alt text](https://github.com/xpada001/google_play_analysis/blob/main/category_plot.png?raw=true)
+
+we can see that software developers tend to create applications in the Family, Game and
+Tools categories. A possible explanation why Family category is the most popular one is that it
+is suited for the whole family, i.e. children, teenagers and parents. Hence it is more likely to
+make a profit. Tools category is popular for the similar reasoning as it is appropriate to all ages.
+Game is another popular category because players can easily spend some money to have a
+better in-game experience.
+
 We can observe that a general trend is that the more Installs and Reviews an application has, the more likely that its rating is high. We can conduct a feature engineering to create a new feature called RVI, which stands for Rating value indicator:
 
 RVI = log(Reviews + 1) ∗ log (Installs + 1)
